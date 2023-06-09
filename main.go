@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"os"
@@ -19,8 +21,12 @@ import (
 )
 
 type MqttChatRequest struct {
-	Topic string `json:"topic"`
-	Msg   string `json:"msg"`
+	Topic      string `json:"topic"`
+	Msg        string `json:"msg"`         // 文字请求
+	IsAudio    bool   `json:"is_audio"`    // 是否是语音请求
+	FIlePath   string `json:"file_path"`   // 语音文件, 这个是由本地生成的 ,该字段不需要手动操作
+	AudioBytes []byte `json:"audio_bytes"` // 语音文件的字节流, 该字段读取的是文件内容
+	FileType   string `json:"file_type"`   // 语音文件的类型,该字段代表请求的语音文件的类型
 }
 
 type MqttChatResponse struct {
@@ -32,8 +38,6 @@ type MqttChatResponse struct {
 
 // 全局mqtt client
 var client MQTT.Client
-
-const openaiAPIURL = "https://api.openai.com/v1/chat/completions"
 
 type ChatRequest struct {
 	APIKey      string   `json:"api_key"`
@@ -58,6 +62,7 @@ var ChatCache = make(map[string][]openai.ChatCompletionMessage, 10)
 var gpt *openai.Client
 
 func main() {
+
 	url := flag.String("url", "", "support mqtt tcp url , e.g: baidu.com:1883")
 	proxy := flag.String("proxy", "", "support http proxy url , e.g: http://192.168.1.1:1080")
 	key := flag.String("key", "", "openai api key e.g: sk-xxxxxx")
@@ -71,8 +76,10 @@ func main() {
 
 	MqttInit(*url)
 	GPTInit(*proxy, *key)
-	ListenMqtt()
-	Chat()
+	ListenMqttStr()
+	ListenMqttAudio()
+	go Chat()
+	AudioTest()
 	// 防止退出
 	select {}
 }
@@ -86,6 +93,7 @@ func MqttInit(url string) {
 	if token := client.Connect(); token.Wait() && token.Error() != nil {
 		panic(token.Error())
 	}
+	log.Println("MQTT 连接成功")
 }
 
 func GPTInit(proxy string, key string) {
@@ -109,7 +117,6 @@ func Chat() {
 	for req := range ChatRequestChan {
 		// 将请求的消息保存到缓存中
 		// 判断是否存在这样的topic
-
 		mutex.Lock()
 		if _, ok := ChatCache[req.Topic]; !ok {
 			msgs := make([]openai.ChatCompletionMessage, 1)
@@ -130,9 +137,9 @@ func Chat() {
 	}
 }
 
-func ListenMqtt() {
+func ListenMqttStr() {
 
-	log.Println("开始监听MQTT")
+	log.Println("MQTT 文本请求监听启动")
 
 	// 订阅MQTT的ChatRequest主题， 监听的消息格式为 MqttChatRequest
 	// 将消息发送的Channel中
@@ -140,8 +147,9 @@ func ListenMqtt() {
 		// 将msg.Payload()转为MqttChatRequest格式
 		// 将转换后的MqttChatRequest发送到ChatRequestChan中
 		var req MqttChatRequest
-		log.Println("收到请求: ", string(msg.Payload()))
+		//log.Println("收到请求: ", string(msg.Payload()))
 		json.Unmarshal(msg.Payload(), &req)
+		log.Println("收到请求: ", req.Msg)
 		ChatRequestChan <- req
 	})
 
@@ -169,10 +177,32 @@ func OpenAiAPiRequest(req MqttChatRequest) {
 	defer stream.Close()
 	var text string
 
+	// 记录开始时间
+	startTime := time.Now().UnixNano()
+
 	for {
 		response, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
-			fmt.Println("Stream finished")
+
+			// 记录结束时间
+			endTime := time.Now().UnixNano()
+
+			// fmt.Printf("耗时：%dms 共计 %d个字 平均速率 %d 个字 / 分钟", (endTime-startTime)/1000000, len(text), len(text)/int((endTime-startTime)/1000000*60))
+
+			// 计算平均每分钟字数
+			// 1. 计算耗时
+			delta := (endTime - startTime) / 1000000
+
+			// 2. 计算字数
+			text_len := len(text)
+
+			// 3. 计算速率
+			speed := float64(text_len) / float64(delta) * 60000
+
+			// 打印结果
+			fmt.Printf("\n对话完成! 耗时：%dms 共计 %d个字 平均速率 %.2f 个字 / 分钟", delta, text_len, speed)
+
+			// fmt.Println("Stream finished")
 			// 保存到缓存中
 			mutex.Lock()
 			ChatCache[req.Topic] = append(ChatCache[req.Topic], openai.ChatCompletionMessage{
@@ -214,6 +244,7 @@ func OpenAiAPiRequest(req MqttChatRequest) {
 
 		fmt.Println("streaming：", time.Now().Format(time.UnixDate), text)
 	}
+
 }
 
 func PushMqttResponse(topic string, res MqttChatResponse) {
@@ -221,4 +252,119 @@ func PushMqttResponse(topic string, res MqttChatResponse) {
 	// 将res转json格式，发送到mqtt的 topic主题中
 	jsonStr, _ := json.Marshal(res)
 	client.Publish(topic, 0, false, jsonStr)
+}
+
+// 语音请求
+func AudioRequest(FilePath string) (string, error) {
+
+	fmt.Println("开始语音请求")
+	req := openai.AudioRequest{
+		Model:    openai.Whisper1,
+		FilePath: FilePath,
+	}
+	ctx := context.Background()
+	resp, err := gpt.CreateTranscription(ctx, req)
+	if err != nil {
+		fmt.Printf("Transcription error: %v\n", err)
+		return "", err
+	}
+	fmt.Println(resp.Text)
+	return resp.Text, nil
+}
+
+// 监听语音请求，然后调用语音请求
+func ListenMqttAudio() {
+	log.Println("MQTT 音频请求监听启动")
+	// 查看AudioTemp文件夹是否存在，不存在则创建
+	_, err := os.Stat("AudioTemp")
+	if err != nil {
+		if os.IsNotExist(err) {
+			err := os.Mkdir("AudioTemp", os.ModePerm)
+			if err != nil {
+				log.Println("创建Temp文件夹失败")
+			}
+		}
+	}
+
+	// 订阅MQTT的ChatRequest主题， 监听的消息格式为 MqttChatRequest
+	// 将消息发送的Channel中
+	client.Subscribe("ChatRequestAudio", 0, func(client MQTT.Client, msg MQTT.Message) {
+		var req MqttChatRequest
+		//	log.Println("收到音频请求: ", string(msg.Payload()))
+		json.Unmarshal(msg.Payload(), &req)
+		// 将req.AudioBytes 写入到AudioTemp文件夹内
+		// 生成随机文件名
+		rand.Seed(time.Now().UnixNano())
+		randNum := rand.Intn(100000)
+		FileName := fmt.Sprintf("%d.%s", randNum, req.FileType)
+		FilePath := fmt.Sprintf("AudioTemp/%s", FileName)
+		// 将req.AudioBytes 写入到AudioTemp文件夹内
+		file, err := os.Create(FilePath)
+		if err != nil {
+			fmt.Println("创建文件失败：", err)
+			return
+		}
+		_, err = file.Write(req.AudioBytes)
+		if err != nil {
+			fmt.Println("写入文件失败：", err)
+			return
+		}
+		file.Close()
+		// 调用语音请求
+		text, err := AudioRequest(FilePath)
+		if err != nil {
+			fmt.Println("语音请求失败：", err)
+			return
+		}
+		req.FIlePath = FilePath
+		req.Msg = text
+
+		// 打印音频信息
+		log.Printf("收到音频请求,音频文件：%s 大小: %dkB, 类型 %s", req.FIlePath, len(req.AudioBytes)/1024, req.FIlePath)
+
+		ChatRequestChan <- req
+	})
+}
+
+func AudioTest() {
+	// 用于测试mqtt的音频请求
+	// 读取test下的b.m4a文件
+	// 延迟3秒后发送请求
+	time.Sleep(3 * time.Second)
+	fmt.Println("开始测试音频请求")
+	file, err := os.Open("test/c.m4a")
+	if err != nil {
+		fmt.Println("打开文件失败：", err)
+		return
+	}
+	// 读取文件内容
+	var buf bytes.Buffer
+	_, err = io.Copy(&buf, file)
+
+	if err != nil {
+		fmt.Println("读取文件失败：", err)
+		return
+	}
+
+	// 将文件内容转为[]byte
+	AudioBytes := buf.Bytes()
+	fmt.Println("读取文件成功文件大小：", len(AudioBytes))
+
+	// 构建请求
+	req := MqttChatRequest{
+		Topic:      "test",
+		Msg:        "",
+		AudioBytes: AudioBytes,
+		FileType:   "m4a",
+		IsAudio:    true,
+	}
+
+	// 将请求转为json
+	jsonStr, _ := json.Marshal(req)
+
+	// 输出大小,转化为KB
+	fmt.Println("发送请求大小：", len(jsonStr)/1024, "KB")
+
+	// 发送请求
+	client.Publish("ChatRequestAudio", 0, false, jsonStr)
 }
