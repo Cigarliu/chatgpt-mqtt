@@ -3,37 +3,49 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"image/png"
 	"io"
 	"log"
 	"math/rand"
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	MQTT "github.com/eclipse/paho.mqtt.golang"
 	"github.com/sashabaranov/go-openai"
 )
 
+// 创建一个能力枚举
+const (
+	IsNotExist = -1
+	// 画图
+	Chat = 0
+	Draw = 1
+)
+
 type MqttChatRequest struct {
-	Topic      string `json:"topic"`
-	Msg        string `json:"msg"`         // 文字请求
-	IsAudio    bool   `json:"is_audio"`    // 是否是语音请求
-	FIlePath   string `json:"file_path"`   // 语音文件, 这个是由本地生成的 ,该字段不需要手动操作
-	AudioBytes []byte `json:"audio_bytes"` // 语音文件的字节流, 该字段读取的是文件内容
-	FileType   string `json:"file_type"`   // 语音文件的类型,该字段代表请求的语音文件的类型
+	Topic       string `json:"topic"`
+	Msg         string `json:"msg"`          // 文字请求
+	Payload     []byte `json:"payload"`      // 语音文件的字节流, 该字段读取的是文件内容
+	PayloadType string `json:"payload_type"` // 语音文件的类型,该字段代表请求的语音文件的类型
 }
 
 type MqttChatResponse struct {
-	Delta    string `json:"delta"`
-	Text     string `json:"Text"`
-	IsFinish bool   `json:"is_finish"`
-	IsError  bool   `json:"is_error"`
+	Delta       string `json:"delta"`
+	Text        string `json:"Text"`
+	IsFinish    bool   `json:"is_finish"`
+	IsError     bool   `json:"is_error"`
+	Payload     []byte `json:"payload"`      // 语音文件的字节流, 该字段读取的是文件内容
+	PayloadType string `json:"payload_type"` // 语音文件的类型,该字段代表请求的语音文件的类型
 }
 
 // 全局mqtt client
@@ -78,8 +90,8 @@ func main() {
 	GPTInit(*proxy, *key)
 	ListenMqttStr()
 	ListenMqttAudio()
-	go Chat()
-	AudioTest()
+	go OpenAiAbility()
+	//AudioTest()
 	// 防止退出
 	select {}
 }
@@ -113,7 +125,7 @@ func GPTInit(proxy string, key string) {
 	gpt = openai.NewClientWithConfig(config)
 }
 
-func Chat() {
+func OpenAiAbility() {
 	for req := range ChatRequestChan {
 		// 将请求的消息保存到缓存中
 		// 判断是否存在这样的topic
@@ -155,8 +167,7 @@ func ListenMqttStr() {
 
 }
 
-func OpenAiAPiRequest(req MqttChatRequest) {
-
+func OpenAiChatRequest(req MqttChatRequest) {
 	chatReq := openai.ChatCompletionRequest{
 		Model:     openai.GPT3Dot5Turbo,
 		MaxTokens: 800,
@@ -194,7 +205,7 @@ func OpenAiAPiRequest(req MqttChatRequest) {
 			delta := (endTime - startTime) / 1000000
 
 			// 2. 计算字数
-			text_len := len(text)
+			text_len := utf8.RuneCountInString(text)
 
 			// 3. 计算速率
 			speed := float64(text_len) / float64(delta) * 60000
@@ -226,11 +237,7 @@ func OpenAiAPiRequest(req MqttChatRequest) {
 		}
 		if err != nil {
 			fmt.Println("Stream error: ", err)
-			PushMqttResponse(req.Topic, MqttChatResponse{
-				Delta:   response.Choices[0].Delta.Content,
-				Text:    "抱歉,我出错了，请再试一次",
-				IsError: true,
-			})
+			ReturnError(req.Topic, err)
 			return
 		}
 		text += response.Choices[0].Delta.Content
@@ -244,7 +251,106 @@ func OpenAiAPiRequest(req MqttChatRequest) {
 
 		fmt.Println("streaming：", time.Now().Format(time.UnixDate), text)
 	}
+}
 
+func AbilityChecker(req MqttChatRequest) int {
+	// 能力检查
+	// 判断 req.Msg 中是否包含能力请求的关键词
+	// 如果前 5 个汉字包含 "画" 则返回 1，否则返回 0
+
+	ability := 0
+	s := req.Msg
+	if len(s) >= 10 { // 至少需要 10 个字节才能包含 5 个汉字
+		// 将字符串转换为 []rune 类型，以便正确处理中文字符
+		runes := []rune(s)
+		// 取前五个汉字
+		if strings.Contains(string(runes[:5]), "画") {
+			ability = 1
+		}
+	}
+
+	return ability
+}
+
+func OpenAiDrawRequest(req MqttChatRequest) {
+
+	fmt.Println("开始绘图")
+
+	ctx := context.Background()
+
+	reqBase64 := openai.ImageRequest{
+		Prompt:         req.Msg,
+		Size:           openai.CreateImageSize256x256,
+		ResponseFormat: openai.CreateImageResponseFormatB64JSON,
+		N:              1,
+	}
+	respBase64, err := gpt.CreateImage(ctx, reqBase64)
+	if err != nil {
+		fmt.Printf("Image creation error: %v\n", err)
+		ReturnError(req.Topic, err)
+		return
+	}
+	imgBytes, err := base64.StdEncoding.DecodeString(respBase64.Data[0].B64JSON)
+	if err != nil {
+		fmt.Printf("Base64 decode error: %v\n", err)
+		ReturnError(req.Topic, err)
+
+		return
+	}
+	r := bytes.NewReader(imgBytes)
+	imgData, err := png.Decode(r)
+	if err != nil {
+		fmt.Printf("PNG decode error: %v\n", err)
+		ReturnError(req.Topic, err)
+		return
+	}
+
+	// 能够解码成功说明是一个正常的图片， 发布到MQTT
+	PushMqttResponse(req.Topic, MqttChatResponse{
+		Delta:       "",
+		Text:        " ",
+		IsError:     false,
+		Payload:     imgBytes,
+		PayloadType: "image/png",
+	})
+
+	file, err := os.Create("example.png")
+	if err != nil {
+		fmt.Printf("File creation error: %v\n", err)
+		return
+	}
+	defer file.Close()
+
+	if err := png.Encode(file, imgData); err != nil {
+		fmt.Printf("PNG encode error: %v\n", err)
+		return
+	}
+	fmt.Println("The image was saved as example.png")
+}
+
+func OpenAiAPiRequest(req MqttChatRequest) {
+
+	// 能力请求
+	ability := AbilityChecker(req)
+	switch ability {
+	case Chat:
+		log.Println("请求类型：聊天")
+		OpenAiChatRequest(req)
+	case Draw:
+		log.Println("请求类型：绘图")
+		OpenAiDrawRequest(req)
+	default:
+		log.Println("请求类型：聊天")
+		OpenAiChatRequest(req)
+	}
+}
+
+func ReturnError(topic string, err error) {
+	PushMqttResponse(topic, MqttChatResponse{
+		Delta:   "",
+		Text:    "抱歉 我出错了，请再试一次 错误信息:" + err.Error(),
+		IsError: true,
+	})
 }
 
 func PushMqttResponse(topic string, res MqttChatResponse) {
@@ -296,17 +402,21 @@ func ListenMqttAudio() {
 		// 生成随机文件名
 		rand.Seed(time.Now().UnixNano())
 		randNum := rand.Intn(100000)
-		FileName := fmt.Sprintf("%d.%s", randNum, req.FileType)
+		FileName := fmt.Sprintf("%d.%s", randNum, req.PayloadType)
 		FilePath := fmt.Sprintf("AudioTemp/%s", FileName)
 		// 将req.AudioBytes 写入到AudioTemp文件夹内
 		file, err := os.Create(FilePath)
 		if err != nil {
 			fmt.Println("创建文件失败：", err)
+			ReturnError(req.Topic, err)
+
 			return
 		}
-		_, err = file.Write(req.AudioBytes)
+		_, err = file.Write(req.Payload)
 		if err != nil {
 			fmt.Println("写入文件失败：", err)
+			ReturnError(req.Topic, err)
+
 			return
 		}
 		file.Close()
@@ -314,13 +424,13 @@ func ListenMqttAudio() {
 		text, err := AudioRequest(FilePath)
 		if err != nil {
 			fmt.Println("语音请求失败：", err)
+			ReturnError(req.Topic, err)
 			return
 		}
-		req.FIlePath = FilePath
 		req.Msg = text
 
 		// 打印音频信息
-		log.Printf("收到音频请求,音频文件：%s 大小: %dkB, 类型 %s", req.FIlePath, len(req.AudioBytes)/1024, req.FIlePath)
+		log.Printf("收到音频请求, 大小: %dkB, 类型 %s", len(req.Payload)/1024, req.PayloadType)
 
 		ChatRequestChan <- req
 	})
@@ -332,7 +442,7 @@ func AudioTest() {
 	// 延迟3秒后发送请求
 	time.Sleep(3 * time.Second)
 	fmt.Println("开始测试音频请求")
-	file, err := os.Open("test/c.m4a")
+	file, err := os.Open("test/e.m4a")
 	if err != nil {
 		fmt.Println("打开文件失败：", err)
 		return
@@ -352,11 +462,10 @@ func AudioTest() {
 
 	// 构建请求
 	req := MqttChatRequest{
-		Topic:      "test",
-		Msg:        "",
-		AudioBytes: AudioBytes,
-		FileType:   "m4a",
-		IsAudio:    true,
+		Topic:       "test",
+		Msg:         "",
+		Payload:     AudioBytes,
+		PayloadType: "m4a",
 	}
 
 	// 将请求转为json
