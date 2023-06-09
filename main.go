@@ -1,12 +1,21 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"flag"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
+	"net/url"
+	"os"
 	"sync"
+	"time"
 
 	MQTT "github.com/eclipse/paho.mqtt.golang"
+	"github.com/sashabaranov/go-openai"
 )
 
 type MqttChatRequest struct {
@@ -15,23 +24,26 @@ type MqttChatRequest struct {
 }
 
 type MqttChatResponse struct {
-	Delta string `json:"delta"`
-	Text  string `json:"Text"`
+	Delta    string `json:"delta"`
+	Text     string `json:"Text"`
+	IsFinish bool   `json:"is_finish"`
+	IsError  bool   `json:"is_error"`
 }
 
 // 全局mqtt client
 var client MQTT.Client
 
-func main() {
-	// 创建MQTT客户端连接配置
-	opts := MQTT.NewClientOptions()
-	opts.AddBroker("tcp://mqtt.example.com:1883") // 替换为你的MQTT代理地址
-	opts.SetClientID("go-mqtt-sample")
-	client = MQTT.NewClient(opts)
-	if token := client.Connect(); token.Wait() && token.Error() != nil {
-		panic(token.Error())
-	}
+const openaiAPIURL = "https://api.openai.com/v1/chat/completions"
+
+type ChatRequest struct {
+	APIKey      string   `json:"api_key"`
+	Model       string   `json:"model"`
+	Messages    []string `json:"messages"`
+	MaxTokens   int      `json:"max_tokens"`
+	Temperature float64  `json:"temperature"`
 }
+
+var HttpRroxy string
 
 // 定义一个全局锁
 var mutex sync.Mutex
@@ -41,40 +53,87 @@ var IsEnableProxy = false
 // 定义一个Channel 结构是 MqttChatRequest
 var ChatRequestChan = make(chan MqttChatRequest)
 
-// 定义一个保存最近十条聊天记录的缓存, key为主题，string为历史记录 历史记录的内容形如：
-// {'role': 'system', 'content': '你是一个聊天助手。'},
-// {'role': 'user', 'content': '你好！'},
-// {'role': 'assistant', 'content': '你好！有什么我可以帮助你的吗？'},
-// {'role': 'user', 'content': '我需要预订一张机票。'},
-// {'role': 'assistant', 'content': '当天的航班还是明天的航班？'},
-// {'role': 'user', 'content': '明天的航班。'},
-// {'role': 'assistant', 'content': '请告诉我你的出发地和目的地。'},
-// {'role': 'user', 'content': '出发地是纽约，目的地是洛杉矶。'},
-// {'role': 'assistant', 'content': '好的，我会为你查询航班信息。'},
-// {'role': 'assistant', 'content': '明天的航班有以下选择：...'}
-var ChatCache = make(map[string]string, 10)
+var ChatCache = make(map[string][]openai.ChatCompletionMessage, 10)
+
+var gpt *openai.Client
+
+func main() {
+	url := flag.String("url", "", "support mqtt tcp url , e.g: baidu.com:1883")
+	proxy := flag.String("proxy", "", "support http proxy url , e.g: http://192.168.1.1:1080")
+	key := flag.String("key", "", "openai api key e.g: sk-xxxxxx")
+	flag.Parse()
+
+	// 判断参数是否全部初始化
+	if *url == "" || *proxy == "" || *key == "" {
+		log.Println("params dont complete , use -h to see help ")
+		os.Exit(1)
+	}
+
+	MqttInit(*url)
+	GPTInit(*proxy, *key)
+	ListenMqtt()
+	Chat()
+	// 防止退出
+	select {}
+}
+
+func MqttInit(url string) {
+	// 创建MQTT客户端连接配置
+	opts := MQTT.NewClientOptions()
+	opts.AddBroker("tcp://" + url)
+	opts.SetClientID("go-mqtt-chat")
+	client = MQTT.NewClient(opts)
+	if token := client.Connect(); token.Wait() && token.Error() != nil {
+		panic(token.Error())
+	}
+}
+
+func GPTInit(proxy string, key string) {
+	// gpt 初始化
+	config := openai.DefaultConfig(key)
+	proxyUrl, err := url.Parse(proxy)
+
+	if err != nil {
+		panic(err)
+	}
+	transport := &http.Transport{
+		Proxy: http.ProxyURL(proxyUrl),
+	}
+	config.HTTPClient = &http.Client{
+		Transport: transport,
+	}
+	gpt = openai.NewClientWithConfig(config)
+}
 
 func Chat() {
-	for {
-		select {
-		case req := <-ChatRequestChan:
-			// 将请求的消息保存到缓存中
-			// 判断是否存在这样的topic
+	for req := range ChatRequestChan {
+		// 将请求的消息保存到缓存中
+		// 判断是否存在这样的topic
 
-			mutex.Lock()
-			if _, ok := ChatCache[req.Topic]; !ok {
-				// 如果不存在，初始化
-				ChatCache[req.Topic] = "{'role': 'system', 'content': '你是一个聊天助手。你的名字叫做胖虎'}"
+		mutex.Lock()
+		if _, ok := ChatCache[req.Topic]; !ok {
+			msgs := make([]openai.ChatCompletionMessage, 1)
+			msgs[0] = openai.ChatCompletionMessage{
+				Role:    openai.ChatMessageRoleSystem,
+				Content: "你是一个聊天助手。你的名字叫做胖虎",
 			}
-			ChatCache[req.Topic] += fmt.Sprintf(",{'role': 'user', 'content': '%s'}", req.Msg)
-			mutex.Unlock()
-			// 调用 OpenAiAPiRequest 发起 OpenAI 请求
-			go OpenAiAPiRequest(req)
+			// 如果不存在，初始化
+			ChatCache[req.Topic] = msgs
 		}
+		ChatCache[req.Topic] = append(ChatCache[req.Topic], openai.ChatCompletionMessage{
+			Role:    openai.ChatMessageRoleUser,
+			Content: req.Msg,
+		})
+		mutex.Unlock()
+		// 调用 OpenAiAPiRequest 发起 OpenAI 请求
+		go OpenAiAPiRequest(req)
 	}
 }
 
 func ListenMqtt() {
+
+	log.Println("开始监听MQTT")
+
 	// 订阅MQTT的ChatRequest主题， 监听的消息格式为 MqttChatRequest
 	// 将消息发送的Channel中
 	client.Subscribe("ChatRequest", 0, func(client MQTT.Client, msg MQTT.Message) {
@@ -89,15 +148,77 @@ func ListenMqtt() {
 }
 
 func OpenAiAPiRequest(req MqttChatRequest) {
-	// openai 的chatgpt api接口请求，需要支持设置代理，通过IsEnableProxy判断是否开启
 
-	// 将req 中的 Msg追加到ChatCache中，添加的格式: ，{'role': 'user', 'content': req.Msg}
-	// 从OpenAi以流式的方式获取聊天结果
-	// 获取req中的主题
-	// 将从OpenAi获取的每次新增的内容都以MqttChatResponse的结构使用PushMqttResponse发送到MQTT的主题中，主题为req中的主题
-	// 直到 openAi接口全部返回 ，将所有内容追加保存到ChatCache中 形同：  ,{'role': 'assistant', 'content': '明天的航班有以下选择：...'}
+	chatReq := openai.ChatCompletionRequest{
+		Model:     openai.GPT3Dot5Turbo,
+		MaxTokens: 800,
+		Messages:  ChatCache[req.Topic],
+		Stream:    true,
+	}
+	ctx := context.Background()
+	stream, err := gpt.CreateChatCompletionStream(ctx, chatReq)
+	if err != nil {
+		fmt.Printf("ChatCompletionStream error: %v\n", err)
+		PushMqttResponse(req.Topic, MqttChatResponse{
+			Delta:   "",
+			Text:    "抱歉 我出错了，请再试一次",
+			IsError: true,
+		})
+		return
+	}
+	defer stream.Close()
+	var text string
+
+	for {
+		response, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			fmt.Println("Stream finished")
+			// 保存到缓存中
+			mutex.Lock()
+			ChatCache[req.Topic] = append(ChatCache[req.Topic], openai.ChatCompletionMessage{
+				Role:    openai.ChatMessageRoleAssistant,
+				Content: text,
+			})
+			// 判断是否超过10条缓存，如果超过则移除最早一次的数据
+			// 实际判断 21是因为  10条对话时api返回的，1条 system级别提示词
+			if len(ChatCache[req.Topic]) > 21 {
+				ChatCache[req.Topic] = ChatCache[req.Topic][1:]
+			}
+
+			mutex.Unlock()
+			PushMqttResponse(req.Topic, MqttChatResponse{
+				Delta:    " ",
+				Text:     " ",
+				IsFinish: true,
+				IsError:  false,
+			})
+			return
+		}
+		if err != nil {
+			fmt.Println("Stream error: ", err)
+			PushMqttResponse(req.Topic, MqttChatResponse{
+				Delta:   response.Choices[0].Delta.Content,
+				Text:    "抱歉,我出错了，请再试一次",
+				IsError: true,
+			})
+			return
+		}
+		text += response.Choices[0].Delta.Content
+		// 将消息发送到MQTT的ChatResponse主题中
+		PushMqttResponse(req.Topic, MqttChatResponse{
+			Delta:    response.Choices[0].Delta.Content,
+			Text:     text,
+			IsFinish: false,
+			IsError:  false,
+		})
+
+		fmt.Println("streaming：", time.Now().Format(time.UnixDate), text)
+	}
 }
 
 func PushMqttResponse(topic string, res MqttChatResponse) {
+	//fmt.Print("发送消息：", topic, res.Text, "\n")
 	// 将res转json格式，发送到mqtt的 topic主题中
+	jsonStr, _ := json.Marshal(res)
+	client.Publish(topic, 0, false, jsonStr)
 }
