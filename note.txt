@@ -1,0 +1,60 @@
+package main
+
+type MqttChatRequest struct {
+	Topic string `json:"topic"`
+	Msg   string `json:"msg"`
+}
+
+type MqttChatResponse struct {
+	Delta string `json:"delta"`
+	Text  string `json:"Text"`
+}
+
+func main() {
+
+}
+
+var IsEnableProxy = false
+
+// 定义一个Channel 结构是 map[string]string
+var ChatRequestChan = make(chan map[string]string)
+
+// 定义一个保存最近十条聊天记录的缓存, key为主题，string为历史记录 历史记录的内容形如：
+// {'role': 'system', 'content': '你是一个聊天助手。'},
+// {'role': 'user', 'content': '你好！'},
+// {'role': 'assistant', 'content': '你好！有什么我可以帮助你的吗？'},
+// {'role': 'user', 'content': '我需要预订一张机票。'},
+// {'role': 'assistant', 'content': '当天的航班还是明天的航班？'},
+// {'role': 'user', 'content': '明天的航班。'},
+// {'role': 'assistant', 'content': '请告诉我你的出发地和目的地。'},
+// {'role': 'user', 'content': '出发地是纽约，目的地是洛杉矶。'},
+// {'role': 'assistant', 'content': '好的，我会为你查询航班信息。'},
+// {'role': 'assistant', 'content': '明天的航班有以下选择：...'}
+var ChatCache = make(map[string]string, 10)
+
+func Chat() {
+	// 始终监听ChatRequestChan
+	// 从Channel中获取数据
+	// 每次收到一个数据都调用一次OpenAiAPiRequest
+
+}
+
+func ListenMqtt() {
+	// 订阅MQTT的ChatRequest主题， 监听的消息格式为 MqttChatRequest
+	// 将消息发送的Channel中
+
+}
+
+func OpenAiAPiRequest(req MqttChatRequest) {
+	// openai 的chatgpt api接口请求，需要支持设置代理，通过IsEnableProxy判断是否开启
+
+	// 将req 中的 Msg追加到ChatCache中，添加的格式: ，{'role': 'user', 'content': req.Msg}
+	// 从OpenAi以流式的方式获取聊天结果
+	// 获取req中的主题
+	// 将从OpenAi获取的每次新增的内容都以MqttChatResponse的结构使用PushMqttResponse发送到MQTT的主题中，主题为req中的主题
+	// 直到 openAi接口全部返回 ，将所有内容追加保存到ChatCache中 形同：  ,{'role': 'assistant', 'content': '明天的航班有以下选择：...'}
+}
+
+func PushMqttResponse(topic string, res MqttChatResponse) {
+	// 将res转json格式，发送到mqtt的 topic主题中
+}
