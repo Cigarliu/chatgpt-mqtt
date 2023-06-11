@@ -1,0 +1,11 @@
+{
+    "idf.espIdfPath": "/home/cigar/esp/esp-idf",
+    "idf.pythonBinPath": "/home/cigar/.espressif/python_env/idf5.0_py3.10_env/bin/python",
+    "idf.toolsPath": "/home/cigar/.espressif",
+    "idf.customExtraPaths": "/home/cigar/.espressif/tools/xtensa-esp-elf-gdb/11.2_20220823/xtensa-esp-elf-gdb/bin:/home/cigar/.espressif/tools/riscv32-esp-elf-gdb/11.2_20220823/riscv32-esp-elf-gdb/bin:/home/cigar/.espressif/tools/xtensa-esp32-elf/esp-2022r1-11.2.0/xtensa-esp32-elf/bin:/home/cigar/.espressif/tools/xtensa-esp32s2-elf/esp-2022r1-11.2.0/xtensa-esp32s2-elf/bin:/home/cigar/.espressif/tools/xtensa-esp32s3-elf/esp-2022r1-11.2.0/xtensa-esp32s3-elf/bin:/home/cigar/.espressif/tools/riscv32-esp-elf/esp-2022r1-11.2.0/riscv32-esp-elf/bin:/home/cigar/.espressif/tools/esp32ulp-elf/2.35_20220830/esp32ulp-elf/bin:/home/cigar/.espressif/tools/openocd-esp32/v0.11.0-esp32-20221026/openocd-esp32/bin:/home/cigar/.espressif/tools/ninja/1.10.2:/home/cigar/.espressif/tools/esp-rom-elfs/20220823",
+    "idf.customExtraVars": {
+        "OPENOCD_SCRIPTS": "/home/cigar/.espressif/tools/openocd-esp32/v0.11.0-esp32-20221026/openocd-esp32/share/openocd/scripts",
+        "ESP_ROM_ELF_DIR": "/home/cigar/.espressif/tools/esp-rom-elfs/20220823/"
+    },
+    "idf.gitPath": "git"
+}

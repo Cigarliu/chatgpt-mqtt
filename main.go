@@ -91,7 +91,7 @@ func main() {
 	ListenMqttStr()
 	ListenMqttAudio()
 	go OpenAiAbility()
-	//AudioTest()
+	AudioTest()
 	// 防止退出
 	select {}
 }
