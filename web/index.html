@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>录音并发布到MQTT</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.js"></script>
+</head>
+
+<body>
+    <h1>录音并发布到MQTT</h1>
+
+    <button onclick="startRecording()">开始录音</button>
+    <button onclick="stopRecording()">停止录音</button>
+
+    <div id="recordedAudio"></div>
+
+    <script>
+        // MQTT连接配置
+        var mqttHost = 'hn.cctv.mba'; // MQTT服务器主机
+        var mqttPort = 8083; // MQTT服务器端口
+        var mqttTopic = 'ChatRequestAudio'; // 发布和订阅的主题
+
+        var mqttClient = new Paho.MQTT.Client(mqttHost, mqttPort, 'Webclient'); // 创建MQTT客户端实例
+
+        // MQTT连接回调
+        mqttClient.onConnectionLost = function(responseObject) {
+            console.log('连接丢失: ' + responseObject.errorMessage);
+        };
+
+        mqttClient.connect({
+            onSuccess: function() {
+                console.log('成功连接到MQTT服务器');
+                // 订阅指定的MQTT主题
+                mqttClient.subscribe("aaa");
+            },
+            onFailure: function(message) {
+                console.log('连接到MQTT服务器失败: ' + message.errorMessage);
+            }
+        });
+
+        // 录音相关
+        var audioChunks = [];
+        var mediaRecorder;
+
+        // 开始录音
+        function startRecording() {
+            audioChunks = [];
+            navigator.mediaDevices.getUserMedia({
+                    audio: true
+                })
+                .then(function(stream) {
+                    mediaRecorder = new MediaRecorder(stream);
+                    mediaRecorder.start();
+
+                    mediaRecorder.addEventListener('dataavailable', function(event) {
+                        audioChunks.push(event.data);
+                    });
+                })
+                .catch(function(error) {
+                    console.log('无法访问麦克风: ' + error);
+                });
+        }
+
+        // 停止录音并发布到MQTT
+        function stopRecording() {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+                mediaRecorder.addEventListener('stop', function() {
+                    var audioBlob = new Blob(audioChunks, {
+                        type: 'audio/wav'
+                    });
+                    var reader = new FileReader();
+                    reader.onload = function() {
+                        var arrayBuffer = this.result;
+                        var byteArray = new Uint8Array(arrayBuffer);
+                        const base64String = btoa(String.fromCharCode.apply(null, byteArray));
+
+                        // 构造MqttChatRequest对象
+                        var mqttChatRequest = {
+                            topic: "aaa",
+                            msg: '', // 在这里填写相关文字请求
+                            payload: base64String,
+                            payload_type: 'wav'
+                        };
+
+                        console.log('音频大小: ' + audioBlob.size + '字节');
+                        // 发布MqttChatRequest对象到MQTT主题
+                        var message = new Paho.MQTT.Message(JSON.stringify(mqttChatRequest));
+                        message.destinationName = mqttTopic;
+                        mqttClient.send(message);
+
+                        // 显示录音数据
+                        var audioElement = document.createElement('audio');
+                        audioElement.src = URL.createObjectURL(audioBlob);
+                        audioElement.controls = true;
+                        document.getElementById('recordedAudio').appendChild(audioElement);
+                    };
+                    reader.readAsArrayBuffer(audioBlob);
+                });
+            }
+        }
+
+        // 订阅MQTT主题并显示接收到的数据
+        mqttClient.onMessageArrived = function(message) {
+            var receivedData = JSON.parse(message.payloadString);
+
+            // 处理接收到的数据
+            // 在这里你可以根据需求进行进一步的处理或显示
+            console.log('接收到数据:', receivedData);
+        };
+    </script>
+</body>
+
+</html>

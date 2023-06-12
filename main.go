@@ -35,7 +35,7 @@ const (
 type MqttChatRequest struct {
 	Topic       string `json:"topic"`
 	Msg         string `json:"msg"`          // 文字请求
-	Payload     []byte `json:"payload"`      // 语音文件的字节流, 该字段读取的是文件内容
+	Payload     string `json:"payload"`      // 语音文件的字节流, 该字段读取的是文件内容
 	PayloadType string `json:"payload_type"` // 语音文件的类型,该字段代表请求的语音文件的类型
 }
 
@@ -44,20 +44,12 @@ type MqttChatResponse struct {
 	Text        string `json:"Text"`
 	IsFinish    bool   `json:"is_finish"`
 	IsError     bool   `json:"is_error"`
-	Payload     []byte `json:"payload"`      // 语音文件的字节流, 该字段读取的是文件内容
+	Payload     string `json:"payload"`      // 语音文件的字节流, 该字段读取的是文件内容
 	PayloadType string `json:"payload_type"` // 语音文件的类型,该字段代表请求的语音文件的类型
 }
 
 // 全局mqtt client
 var client MQTT.Client
-
-type ChatRequest struct {
-	APIKey      string   `json:"api_key"`
-	Model       string   `json:"model"`
-	Messages    []string `json:"messages"`
-	MaxTokens   int      `json:"max_tokens"`
-	Temperature float64  `json:"temperature"`
-}
 
 var HttpRroxy string
 
@@ -91,7 +83,7 @@ func main() {
 	ListenMqttStr()
 	ListenMqttAudio()
 	go OpenAiAbility()
-	AudioTest()
+	//AudioTest()
 	// 防止退出
 	select {}
 }
@@ -100,7 +92,7 @@ func MqttInit(url string) {
 	// 创建MQTT客户端连接配置
 	opts := MQTT.NewClientOptions()
 	opts.AddBroker("tcp://" + url)
-	opts.SetClientID("go-mqtt-chat")
+	opts.SetClientID("go-mqtt-chat-fc")
 	client = MQTT.NewClient(opts)
 	if token := client.Connect(); token.Wait() && token.Error() != nil {
 		panic(token.Error())
@@ -310,7 +302,7 @@ func OpenAiDrawRequest(req MqttChatRequest) {
 		Delta:       "",
 		Text:        " ",
 		IsError:     false,
-		Payload:     imgBytes,
+		Payload:     respBase64.Data[0].B64JSON,
 		PayloadType: "image/png",
 	})
 
@@ -398,6 +390,8 @@ func ListenMqttAudio() {
 		var req MqttChatRequest
 		//	log.Println("收到音频请求: ", string(msg.Payload()))
 		json.Unmarshal(msg.Payload(), &req)
+		// 打印 负载大小
+		log.Println("负载大小：", len(req.Payload))
 		// 将req.AudioBytes 写入到AudioTemp文件夹内
 		// 生成随机文件名
 		rand.Seed(time.Now().UnixNano())
@@ -412,7 +406,11 @@ func ListenMqttAudio() {
 
 			return
 		}
-		_, err = file.Write(req.Payload)
+
+		// req.Payload 是 base64
+		byteArray, err := base64.StdEncoding.DecodeString(req.Payload)
+
+		_, err = file.Write(byteArray)
 		if err != nil {
 			fmt.Println("写入文件失败：", err)
 			ReturnError(req.Topic, err)
@@ -459,12 +457,14 @@ func AudioTest() {
 	// 将文件内容转为[]byte
 	AudioBytes := buf.Bytes()
 	fmt.Println("读取文件成功文件大小：", len(AudioBytes))
+	// 转 base64
+	base64str := base64.StdEncoding.EncodeToString(AudioBytes)
 
 	// 构建请求
 	req := MqttChatRequest{
 		Topic:       "test",
 		Msg:         "",
-		Payload:     AudioBytes,
+		Payload:     base64str,
 		PayloadType: "m4a",
 	}
 

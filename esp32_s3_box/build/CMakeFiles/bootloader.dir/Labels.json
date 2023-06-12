@@ -1,0 +1,43 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "D:/projects/chatgpt-mqtt/esp32_s3_box/build/CMakeFiles/bootloader"
+		},
+		{
+			"file" : "D:/projects/chatgpt-mqtt/esp32_s3_box/build/CMakeFiles/bootloader.rule"
+		},
+		{
+			"file" : "D:/projects/chatgpt-mqtt/esp32_s3_box/build/CMakeFiles/bootloader-complete.rule"
+		},
+		{
+			"file" : "D:/projects/chatgpt-mqtt/esp32_s3_box/build/bootloader-prefix/src/bootloader-stamp/bootloader-build.rule"
+		},
+		{
+			"file" : "D:/projects/chatgpt-mqtt/esp32_s3_box/build/bootloader-prefix/src/bootloader-stamp/bootloader-configure.rule"
+		},
+		{
+			"file" : "D:/projects/chatgpt-mqtt/esp32_s3_box/build/bootloader-prefix/src/bootloader-stamp/bootloader-download.rule"
+		},
+		{
+			"file" : "D:/projects/chatgpt-mqtt/esp32_s3_box/build/bootloader-prefix/src/bootloader-stamp/bootloader-install.rule"
+		},
+		{
+			"file" : "D:/projects/chatgpt-mqtt/esp32_s3_box/build/bootloader-prefix/src/bootloader-stamp/bootloader-mkdir.rule"
+		},
+		{
+			"file" : "D:/projects/chatgpt-mqtt/esp32_s3_box/build/bootloader-prefix/src/bootloader-stamp/bootloader-patch.rule"
+		},
+		{
+			"file" : "D:/projects/chatgpt-mqtt/esp32_s3_box/build/bootloader-prefix/src/bootloader-stamp/bootloader-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"bootloader"
+		],
+		"name" : "bootloader"
+	}
+}

@@ -1,0 +1,13 @@
+# Target labels
+ bootloader
+# Source files and their labels
+D:/projects/chatgpt-mqtt/esp32_s3_box/build/CMakeFiles/bootloader
+D:/projects/chatgpt-mqtt/esp32_s3_box/build/CMakeFiles/bootloader.rule
+D:/projects/chatgpt-mqtt/esp32_s3_box/build/CMakeFiles/bootloader-complete.rule
+D:/projects/chatgpt-mqtt/esp32_s3_box/build/bootloader-prefix/src/bootloader-stamp/bootloader-build.rule
+D:/projects/chatgpt-mqtt/esp32_s3_box/build/bootloader-prefix/src/bootloader-stamp/bootloader-configure.rule
+D:/projects/chatgpt-mqtt/esp32_s3_box/build/bootloader-prefix/src/bootloader-stamp/bootloader-download.rule
+D:/projects/chatgpt-mqtt/esp32_s3_box/build/bootloader-prefix/src/bootloader-stamp/bootloader-install.rule
+D:/projects/chatgpt-mqtt/esp32_s3_box/build/bootloader-prefix/src/bootloader-stamp/bootloader-mkdir.rule
+D:/projects/chatgpt-mqtt/esp32_s3_box/build/bootloader-prefix/src/bootloader-stamp/bootloader-patch.rule
+D:/projects/chatgpt-mqtt/esp32_s3_box/build/bootloader-prefix/src/bootloader-stamp/bootloader-update.rule

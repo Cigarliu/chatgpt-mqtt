@@ -1,0 +1,26 @@
+{
+    "project_name":       "bootloader",
+    "project_path":       "C:/Users/l1584/esp/esp-idf/components/bootloader/subproject",
+    "build_dir":          "D:/projects/chatgpt-mqtt/esp32_s3_box/build/bootloader",
+    "config_file":        "D:/projects/chatgpt-mqtt/esp32_s3_box/sdkconfig",
+    "config_defaults":    "",
+    "bootloader_elf":     "",
+    "app_elf":            "bootloader.elf",
+    "app_bin":            "bootloader.bin",
+    "build_type":         "flash_app",
+    "git_revision":       "v5.1-rc1-36-g4bc762621d",
+    "target":             "esp32s3",
+    "rev":                "",
+    "min_rev":            "0",
+    "max_rev":            "99",
+    "phy_data_partition": "",
+    "monitor_baud" :      "115200",
+    "monitor_toolprefix": "xtensa-esp32s3-elf-",
+    "config_environment" : {
+        "COMPONENT_KCONFIGS" : "C:/Users/l1584/esp/esp-idf/components/efuse/Kconfig;C:/Users/l1584/esp/esp-idf/components/esp_common/Kconfig;C:/Users/l1584/esp/esp-idf/components/esp_hw_support/Kconfig;C:/Users/l1584/esp/esp-idf/components/esp_system/Kconfig;C:/Users/l1584/esp/esp-idf/components/freertos/Kconfig;C:/Users/l1584/esp/esp-idf/components/hal/Kconfig;C:/Users/l1584/esp/esp-idf/components/log/Kconfig;C:/Users/l1584/esp/esp-idf/components/newlib/Kconfig;C:/Users/l1584/esp/esp-idf/components/soc/Kconfig;C:/Users/l1584/esp/esp-idf/components/spi_flash/Kconfig",
+        "COMPONENT_KCONFIGS_PROJBUILD" : "C:/Users/l1584/esp/esp-idf/components/bootloader/Kconfig.projbuild;C:/Users/l1584/esp/esp-idf/components/esp_app_format/Kconfig.projbuild;C:/Users/l1584/esp/esp-idf/components/esp_rom/Kconfig.projbuild;C:/Users/l1584/esp/esp-idf/components/esptool_py/Kconfig.projbuild;C:/Users/l1584/esp/esp-idf/components/partition_table/Kconfig.projbuild"
+    },
+    "build_components" : [ "bootloader", "bootloader_support", "efuse", "esp_app_format", "esp_common", "esp_hw_support", "esp_rom", "esp_system", "esptool_py", "freertos", "hal", "log", "main", "micro-ecc", "newlib", "partition_table", "soc", "spi_flash", "xtensa", "" ],
+    "build_component_paths" : [ "C:/Users/l1584/esp/esp-idf/components/bootloader", "C:/Users/l1584/esp/esp-idf/components/bootloader_support", "C:/Users/l1584/esp/esp-idf/components/efuse", "C:/Users/l1584/esp/esp-idf/components/esp_app_format", "C:/Users/l1584/esp/esp-idf/components/esp_common", "C:/Users/l1584/esp/esp-idf/components/esp_hw_support", "C:/Users/l1584/esp/esp-idf/components/esp_rom", "C:/Users/l1584/esp/esp-idf/components/esp_system", "C:/Users/l1584/esp/esp-idf/components/esptool_py", "C:/Users/l1584/esp/esp-idf/components/freertos", "C:/Users/l1584/esp/esp-idf/components/hal", "C:/Users/l1584/esp/esp-idf/components/log", "C:/Users/l1584/esp/esp-idf/components/bootloader/subproject/main", "C:/Users/l1584/esp/esp-idf/components/bootloader/subproject/components/micro-ecc", "C:/Users/l1584/esp/esp-idf/components/newlib", "C:/Users/l1584/esp/esp-idf/components/partition_table", "C:/Users/l1584/esp/esp-idf/components/soc", "C:/Users/l1584/esp/esp-idf/components/spi_flash", "C:/Users/l1584/esp/esp-idf/components/xtensa", "" ],
+    "debug_prefix_map_gdbinit": ""
+}
