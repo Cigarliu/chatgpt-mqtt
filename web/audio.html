@@ -1,0 +1,250 @@
+﻿<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>Chat</title>
+    <style>
+        #status {
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>语音唤醒示例</h1>
+    <p id="status">正在等待唤醒...</p>
+    <audio id="audioPlayer"></audio>
+    <button onclick="speak()">点击这里听我说话</button>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.js"></script>
+
+    <script src="//cdnjs.cloudflare.com/ajax/libs/annyang/2.6.1/annyang.min.js"></script>
+    <script>
+
+        let queue = []; // 队列
+        let intervalId; // 定时器ID
+        let average = 0;
+        let isRecording = false;
+        // 录音相关
+        var audioChunks = [];
+        var mediaRecorder;
+
+        // MQTT连接配置
+        let mqttHost = 'hn.cctv.mba'; // MQTT服务器主机
+        let mqttPort = 8083; // MQTT服务器端口
+        let mqttTopic = 'ChatRequestAudio'; // 发布和订阅的主题
+
+        let mqttClient = new Paho.MQTT.Client(mqttHost, mqttPort, 'Webclient'); // 创建MQTT客户端实例
+        function start() {
+            // 每隔1秒钟遍历一次队列
+            intervalId = setInterval(function () {
+                if (queue.length > 0) {
+                    // 如果队列中有数据，就将数据转换为语音并播放出来
+                    var text = queue.shift();
+                    var utterance = new SpeechSynthesisUtterance(text);
+                    speechSynthesis.speak(utterance);
+                }
+            }, 1000);
+        }
+
+        start()
+        function stop() {
+            // 停止定时器
+            clearInterval(intervalId);
+        }
+
+        // 将数据添加到队列中
+        function addToQueue(text) {
+            queue.push(text);
+        }
+
+        // MQTT连接回调
+        mqttClient.onConnectionLost = function (responseObject) {
+            console.log('连接丢失: ' + responseObject.errorMessage);
+        };
+
+        mqttClient.connect({
+            onSuccess: function () {
+                console.log('成功连接到MQTT服务器');
+                // 订阅指定的MQTT主题
+                mqttClient.subscribe("aaa");
+            },
+            onFailure: function (message) {
+                console.log('连接到MQTT服务器失败: ' + message.errorMessage);
+            }
+        });
+        let lastText = "";
+        // 订阅MQTT主题并显示接收到的数据
+        mqttClient.onMessageArrived = function (message) {
+            var receivedData = JSON.parse(message.payloadString);
+            // 处理接收到的数据
+            // 在这里你可以根据需求进行进一步的处理或显示
+            console.log('接收到数据:', receivedData);
+           // lastText = receivedData.Text;
+            //判断是否接受完成
+            if (receivedData.is_finish) {
+                addToQueue(lastText);
+                console.log("接受完成"+ lastText);
+            }else{
+                lastText = receivedData.Text;
+            }
+
+        };
+
+
+        let RecordingTime = 0;
+
+
+        // 检测麦克风静音状态的函数
+        function checkMicrophoneMute() {
+            navigator.mediaDevices.getUserMedia({ audio: true })
+                .then(stream => {
+                    const audioContext = new AudioContext();
+                    const mediaStreamSource = audioContext.createMediaStreamSource(stream);
+                    const analyser = audioContext.createAnalyser();
+                    mediaStreamSource.connect(analyser);
+
+                    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+                    // 检测麦克风音频数据
+                    function detectAudio() {
+                        analyser.getByteFrequencyData(dataArray);
+                        const isMuted = dataArray.every(value => value === 0);
+
+                        // 计算强度
+                        var sum = 0;
+                        for (var i = 0; i < dataArray.length; i++) {
+                            sum += dataArray[i];
+                        }
+                        average = sum / dataArray.length;
+
+                        if (average < 30 && isRecording) {
+                            RecordingTime++;
+                            if (RecordingTime > 5) {
+                                stopRecording();
+                                console.log("stop");
+                                isRecording = false;
+                            }
+                        } else {
+                            RecordingTime = 0;
+                        }
+                    }
+                    // 每100毫秒检测一次麦克风音频数据
+                    setInterval(detectAudio, 1000);
+                })
+                .catch(error => {
+                    console.error('无法访问麦克风:', error);
+                });
+        }
+
+        function stopRecording() {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+                mediaRecorder.addEventListener('stop', function () {
+                    var audioBlob = new Blob(audioChunks, {
+                        type: 'audio/wav'
+                    });
+                    var reader = new FileReader();
+                    reader.onload = function () {
+                        var arrayBuffer = this.result;
+                        var byteArray = new Uint8Array(arrayBuffer);
+                        const base64String = btoa(String.fromCharCode.apply(null, byteArray));
+
+                        // 构造MqttChatRequest对象
+                        var mqttChatRequest = {
+                            topic: "aaa",
+                            msg: '', // 在这里填写相关文字请求
+                            payload: base64String,
+                            payload_type: 'wav'
+                        };
+
+                        console.log('音频大小: ' + audioBlob.size + '字节');
+                        // 发布MqttChatRequest对象到MQTT主题
+                        var message = new Paho.MQTT.Message(JSON.stringify(mqttChatRequest));
+                        message.destinationName = mqttTopic;
+                        mqttClient.send(message);
+
+                        // 显示录音数据
+                        var audioElement = document.createElement('audio');
+                        audioElement.src = URL.createObjectURL(audioBlob);
+                        audioElement.controls = true;
+                        // document.getElementById('recordedAudio').appendChild(audioElement);
+                    };
+                    reader.readAsArrayBuffer(audioBlob);
+                });
+            }
+        }
+
+        // 开始录音
+        function startRecording() {
+            console.log("唤醒成功，开始录音");
+            addToQueue("hi");
+            // 延迟1秒后开始录音
+            setTimeout(function () {
+                isRecording = true;
+                RecordingTime = 0;
+                audioChunks = [];
+                navigator.mediaDevices.getUserMedia({
+                    audio: true
+                })
+                    .then(function (stream) {
+                        mediaRecorder = new MediaRecorder(stream);
+                        mediaRecorder.start();
+
+                        mediaRecorder.addEventListener('dataavailable', function (event) {
+                            audioChunks.push(event.data);
+                        });
+                    })
+                    .catch(function (error) {
+                        console.log('无法访问麦克风: ' + error);
+                    });
+            }, 1000);
+            // 延迟一秒后执行
+
+
+        }
+        // 调用函数开始检测麦克风静音状态
+
+        // 当页面加载完成后执行
+        document.addEventListener('DOMContentLoaded', () => {
+            checkMicrophoneMute();
+            console.log('页面加载完成');
+
+            // 检查浏览器是否支持Web Speech API
+            if ('speechSynthesis' in window) {
+                // 创建 SpeechSynthesisUtterance 对象
+                var synthesis = window.speechSynthesis;
+                var utterance = new SpeechSynthesisUtterance();
+                console.log("支持语音合成");
+                // 设置要转换为语音的文本
+                utterance.text = 'Hello, world!';
+
+                // 启动语音合成
+                synthesis.speak(utterance);
+            } else {
+                console.log('浏览器不支持语音合成功能');
+            }
+
+        });
+
+
+
+        document.addEventListener('DOMContentLoaded', () => {
+
+            if (annyang) {
+
+                const commands = {
+                    'hi': () => { alert('Hello world!'); },
+                    'hello': () => { startRecording(); },
+                };
+                annyang.addCommands(commands);
+                annyang.start();
+            }
+
+        });
+    </script>
+</body>
+
+</html>

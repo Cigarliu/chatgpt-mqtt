@@ -37,7 +37,14 @@
                 console.log('连接到MQTT服务器失败: ' + message.errorMessage);
             }
         });
+        // 订阅MQTT主题并显示接收到的数据
+        mqttClient.onMessageArrived = function(message) {
+            var receivedData = JSON.parse(message.payloadString);
 
+            // 处理接收到的数据
+            // 在这里你可以根据需求进行进一步的处理或显示
+            console.log('接收到数据:', receivedData);
+        };
         // 录音相关
         var audioChunks = [];
         var mediaRecorder;
